@@ -246,22 +246,25 @@ func release(releaseName string, releaseAssets []string, options *commandLineOpt
 	client := github.NewClient(tc)
 
 	ctx := context.TODO()
+	
+	var foundRelease *github.RepositoryRelease
 
-	// Create an object that represents the release
-	release := &github.RepositoryRelease{
-		Name:            &releaseName,
-		TagName:         &tagName,
-		TargetCommitish: &options.Commit,
-		Prerelease:      &options.Prerelease,
+	for foundRelease == nil {
+		releases, _, err := client.Repositories.ListReleases(ctx, repositoryParts[0], repositoryParts[1], &github.ListOptions{
+			Page: 1,
+			PerPage: 5,
+		})
+		if err != nil {
+			log.Fatalf("Failed to list releases (%T %v)", err, err)
+		}
+
+		for _, release := range releases {
+			if release.TagName != nil && *release.TagName == tagName {
+				foundRelease = release
+				break
+			}
+		}
 	}
-
-	// Create the GitHub release
-	createdRelease, _, err := client.Repositories.CreateRelease(ctx, repositoryParts[0], repositoryParts[1], release)
-	if err != nil {
-		log.Fatalf("Failed to create release (%T %v)", err, err)
-	}
-
-	// log.Printf("DEBUG: %s", github.Stringify(createdRelease))
 
 	// Start uploading the assets
 	for i := 0; i < len(releaseAssets); i++ {
@@ -273,13 +276,11 @@ func release(releaseName string, releaseAssets []string, options *commandLineOpt
 		}
 
 		releaseAssetOptions := &github.UploadOptions{Name: filepath.Base(fileName)}
-		createdReleaseAsset, _, err := client.Repositories.UploadReleaseAsset(ctx,repositoryParts[0], repositoryParts[1], *createdRelease.ID, releaseAssetOptions, file)
+		createdReleaseAsset, _, err := client.Repositories.UploadReleaseAsset(ctx,repositoryParts[0], repositoryParts[1], *foundRelease.ID, releaseAssetOptions, file)
 		if err != nil {
 			log.Fatalf("Failed to upload asset \"%s\" (%T %v)", fileName, err, err)
 		}
 
 		log.Printf("Successfully uploaded asset: %s", github.Stringify(createdReleaseAsset.URL))
 	}
-
-	log.Printf("Successfully created release: %s", github.Stringify(createdRelease.HTMLURL))
 }
